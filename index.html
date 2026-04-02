@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Togg IPTV Pro - Stable Edition</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <title>Togg IPTV Pro - Stable Version</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
     <style>
         :root { --primary: #00d2ff; --bg: #0f172a; --sidebar: #1e293b; --text: #f8fafc; --fav: #fbbf24; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; height: 100vh; overflow: hidden; }
@@ -12,11 +12,9 @@
         .controls-area { padding: 15px; border-bottom: 1px solid #334155; display: flex; flex-direction: column; gap: 10px; }
         select, input { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #0f172a; color: white; font-size: 14px; outline: none; }
         .list-container { flex: 1; overflow-y: auto; padding: 10px; }
-        .channel-item { display: flex; align-items: center; padding: 10px; margin-bottom: 5px; border-radius: 8px; background: #2d3748; cursor: pointer; font-size: 13px; border: 1px solid transparent; }
+        .channel-item { display: flex; align-items: center; padding: 10px; margin-bottom: 5px; border-radius: 8px; background: #2d3748; cursor: pointer; transition: 0.2s; font-size: 13px; border: 1px solid transparent; }
         .channel-item:hover { background: #4a5568; border-color: var(--primary); }
         .active { border-left: 5px solid var(--primary); background: #1a202c !important; }
-        .fav-btn { margin-left: auto; font-size: 20px; color: #666; }
-        .is-fav { color: var(--fav); }
         #main { flex: 1; display: flex; flex-direction: column; background: #000; position: relative; }
         video { width: 100%; height: 100%; object-fit: contain; }
         #debug { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.85); color: #00ff00; font-family: monospace; font-size: 11px; padding: 8px; max-height: 100px; overflow-y: auto; pointer-events: none; }
@@ -35,7 +33,7 @@
 
 <div id="main">
     <video id="video" controls autoplay playsinline></video>
-    <div id="loader">YÜKLENİYOR...</div>
+    <div id="loader">BAĞLANILIYOR...</div>
     <div id="debug">Sistem hazır...</div>
 </div>
 
@@ -46,8 +44,7 @@
     const loader = document.getElementById('loader');
     
     let allChannels = [];
-    let favorites = JSON.parse(localStorage.getItem('togg_favs')) || [];
-    let hls = new Hls();
+    let hls = null;
 
     function log(msg, color = "#00ff00") {
         debug.innerHTML += `<div style="color:${color}">${new Date().toLocaleTimeString()}: ${msg}</div>`;
@@ -59,9 +56,9 @@
             const response = await fetch(M3U_URL);
             const data = await response.text();
             parseM3U(data);
-            log("Liste yüklendi. Kanal sayısı: " + allChannels.length);
+            log("Liste yüklendi. Kanal: " + allChannels.length);
         } catch (e) {
-            log("Hata: " + e.message, "red");
+            log("Liste Okuma Hatası: " + e.message, "red");
         }
     }
 
@@ -93,7 +90,7 @@
         const cl = document.getElementById('channelList');
         cl.innerHTML = '';
         allChannels.filter(c => (g === 'all' || c.group === g) && c.title.toLowerCase().includes(q))
-            .slice(0, 200).forEach(c => {
+            .slice(0, 150).forEach(c => {
                 const div = document.createElement('div');
                 div.className = 'channel-item';
                 div.innerHTML = `<span>${c.title}</span>`;
@@ -103,28 +100,35 @@
     }
 
     function play(url, el) {
-        // EN KRİTİK NOKTA: Yayın linkini Proxy üzerinden geçiriyoruz.
-        // Bu sayede HTTPS-HTTP uyuşmazlığını ve CORS engelini aşıyoruz.
-        const proxiedUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-        
-        log("Köprü üzerinden bağlanılıyor...");
+        if (hls) hls.destroy();
+        log("Kanal isteği: " + url);
         loader.style.display = 'block';
 
+        // Mühendislik Dokunuşu: Tüm HTTP trafiğini HTTPS Köprüye zorla
+        const proxyPrefix = 'https://corsproxy.io/?';
+
         if (Hls.isSupported()) {
-            hls.destroy();
-            hls = new Hls();
-            hls.loadSource(proxiedUrl);
+            hls = new Hls({
+                // Bu kısım videonun tüm parçalarını otomatik olarak proxy'den geçirir
+                xhrSetup: function (xhr, url) {
+                    xhr.open('GET', proxyPrefix + encodeURIComponent(url), true);
+                }
+            });
+            
+            hls.loadSource(proxyPrefix + encodeURIComponent(url));
             hls.attachMedia(video);
+            
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                log("Yayın yakalandı, oynatılıyor...");
+                log("HLS Manifest yakalandı.");
                 video.play().then(() => loader.style.display = 'none').catch(() => {
-                    log("Dokunarak başlatın.", "orange");
-                    loader.innerHTML = '<button onclick="video.play(); document.getElementById(\'loader\').style.display=\'none\';" style="padding:10px; background:cyan; border:none; border-radius:5px; font-weight:bold;">OYNAT</button>';
+                    log("Dokunarak oynatın.", "orange");
+                    loader.innerHTML = '<button onclick="video.play(); document.getElementById(\'loader\').style.display=\'none\';" style="padding:15px; background:cyan; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">OYNAT</button>';
                 });
             });
+
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
-                    log("YAYIN HATASI: " + data.details, "red");
+                    log("KRİTİK HATA: " + data.details, "red");
                     loader.innerHTML = `HATA!<br><small>${data.details}</small>`;
                 }
             });
