@@ -3,34 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Togg IPTV - Engineer Edition</title>
+    <title>Togg IPTV Pro - Stable Edition</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         :root { --primary: #00d2ff; --bg: #0f172a; --sidebar: #1e293b; --text: #f8fafc; --fav: #fbbf24; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; height: 100vh; overflow: hidden; }
         #sidebar { width: 320px; background: var(--sidebar); display: flex; flex-direction: column; border-right: 1px solid #334155; }
-        .controls-area { padding: 15px; border-bottom: 1px solid #334155; display: flex; flex-direction: column; gap: 8px; }
-        select, input { width: 100%; padding: 10px; border-radius: 5px; border: none; background: #0f172a; color: white; font-size: 14px; outline: none; }
+        .controls-area { padding: 15px; border-bottom: 1px solid #334155; display: flex; flex-direction: column; gap: 10px; }
+        select, input { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #0f172a; color: white; font-size: 14px; outline: none; }
         .list-container { flex: 1; overflow-y: auto; padding: 10px; }
-        .channel-item { display: flex; align-items: center; padding: 10px; margin-bottom: 5px; border-radius: 6px; background: #2d3748; cursor: pointer; font-size: 13px; border: 1px solid transparent; }
-        .channel-item:hover { background: #3d495d; border-color: var(--primary); }
+        .channel-item { display: flex; align-items: center; padding: 10px; margin-bottom: 5px; border-radius: 8px; background: #2d3748; cursor: pointer; transition: 0.2s; font-size: 13px; border: 1px solid transparent; }
+        .channel-item:hover { background: #4a5568; border-color: var(--primary); }
         .active { border-left: 5px solid var(--primary); background: #1a202c !important; }
-        .fav-btn { margin-left: auto; color: #666; font-size: 20px; }
+        .fav-btn { margin-left: auto; font-size: 20px; color: #666; }
         .is-fav { color: var(--fav); }
-
         #main { flex: 1; display: flex; flex-direction: column; background: #000; position: relative; }
-        video { flex: 1; width: 100%; height: 100%; background: #000; }
-        
-        #debug-panel { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.85); color: #00ff00; font-family: monospace; font-size: 11px; padding: 10px; border-top: 1px solid #333; max-height: 120px; overflow-y: auto; pointer-events: none; }
-        #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; color: var(--primary); text-align: center; background: rgba(0,0,0,0.9); padding: 25px; border-radius: 15px; border: 1px solid var(--primary); z-index: 100; }
-        .btn-retry { margin-top: 10px; padding: 10px 20px; background: var(--primary); color: #000; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; pointer-events: auto; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+        #debug { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.8); color: #00ff00; font-family: monospace; font-size: 11px; padding: 8px; max-height: 100px; overflow-y: auto; pointer-events: none; }
+        #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; color: var(--primary); font-weight: bold; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px; text-align: center; z-index: 100; }
     </style>
 </head>
 <body>
 
 <div id="sidebar">
     <div class="controls-area">
-        <select id="groupSelect" onchange="updateUI()"></select>
+        <select id="groupSelect" onchange="updateUI()"><option value="all">Kategoriler...</option></select>
         <input type="text" id="searchInput" placeholder="Kanal ara..." onkeyup="updateUI()">
     </div>
     <div class="list-container">
@@ -41,15 +38,16 @@
 
 <div id="main">
     <video id="video" controls autoplay playsinline></video>
-    <div id="loader">İŞLENİYOR...</div>
-    <div id="debug-panel">Sistem Hazır.</div>
+    <div id="loader">YÜKLENİYOR...</div>
+    <div id="debug">Sistem hazır...</div>
 </div>
 
 <script>
     const M3U_URL = 'liste.m3u'; 
     const video = document.getElementById('video');
-    const debug = document.getElementById('debug-panel');
+    const debug = document.getElementById('debug');
     const loader = document.getElementById('loader');
+    
     let allChannels = [];
     let favorites = JSON.parse(localStorage.getItem('togg_favs')) || [];
     let hls = new Hls();
@@ -60,12 +58,11 @@
     }
 
     async function init() {
-        log("Liste okunuyor...");
         try {
-            const res = await fetch(M3U_URL);
-            const data = await res.text();
+            const response = await fetch(M3U_URL);
+            const data = await response.text();
             parseM3U(data);
-            log("Liste yüklendi. Kanal: " + allChannels.length);
+            log("Liste başarıyla yüklendi.");
         } catch (e) {
             log("Hata: " + e.message, "red");
         }
@@ -75,14 +72,14 @@
         const lines = data.split('\n');
         const groups = new Set();
         let current = null;
-        lines.forEach(l => {
-            l = l.trim();
-            if (l.startsWith('#EXTINF:')) {
-                const gm = l.match(/group-title="([^"]+)"/);
-                current = { title: l.split(',').pop().trim(), group: gm ? gm[1] : "Genel" };
+        lines.forEach(line => {
+            line = line.trim();
+            if (line.startsWith('#EXTINF:')) {
+                const g = line.match(/group-title="([^"]+)"/);
+                current = { title: line.split(',').pop().trim(), group: g ? g[1] : "Genel" };
                 groups.add(current.group);
-            } else if (l.startsWith('http') && current) {
-                current.url = l;
+            } else if (line.startsWith('http') && current) {
+                current.url = line;
                 allChannels.push(current);
                 current = null;
             }
@@ -95,51 +92,47 @@
 
     function updateUI() {
         const g = document.getElementById('groupSelect').value;
-        const s = document.getElementById('searchInput').value.toLowerCase();
+        const q = document.getElementById('searchInput').value.toLowerCase();
         const cl = document.getElementById('channelList');
         cl.innerHTML = '';
-        allChannels.filter(c => (g==='all' || c.group===g) && c.title.toLowerCase().includes(s)).slice(0,250).forEach(c => {
-            const div = document.createElement('div');
-            div.className = 'channel-item';
-            div.innerHTML = `<span>${c.title}</span><span class="fav-btn ${favorites.includes(c.url)?'is-fav':''}">★</span>`;
-            div.onclick = () => play(c.url, div);
-            cl.appendChild(div);
-        });
+        allChannels.filter(c => (g === 'all' || c.group === g) && c.title.toLowerCase().includes(q))
+            .slice(0, 250).forEach(c => {
+                const div = document.createElement('div');
+                div.className = 'channel-item';
+                div.innerHTML = `<span>${c.title}</span><span class="fav-btn ${favorites.includes(c.url)?'is-fav':''}">★</span>`;
+                div.onclick = () => play(c.url, div);
+                cl.appendChild(div);
+            });
     }
 
     function play(url, el) {
-        log("Bağlantı kuruluyor: " + url);
+        log("Yayına bağlanılıyor: " + url);
         loader.style.display = 'block';
-        loader.innerHTML = "YÜKLENİYOR...";
 
         if (Hls.isSupported()) {
             hls.destroy();
             hls = new Hls();
             hls.loadSource(url);
             hls.attachMedia(video);
-            
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                log("Yayın yakalandı. Başlatılıyor...");
-                video.play().then(() => {
-                    loader.style.display = 'none';
-                }).catch(e => {
-                    log("Auto-play engellendi. Dokunun.", "orange");
-                    loader.innerHTML = 'OYNATMAK İÇİN DOKUNUN<br><button class="btn-retry" onclick="video.play(); document.getElementById(\'loader\').style.display=\'none\';">OYNAT</button>';
+                log("Yayın yakalandı, oynatılıyor...");
+                video.play().then(() => loader.style.display = 'none').catch(e => {
+                    log("Dokunarak başlatın.", "orange");
+                    loader.innerHTML = '<button onclick="video.play(); document.getElementById(\'loader\').style.display=\'none\';" style="padding:10px; background:cyan; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">OYNAT</button>';
                 });
             });
-
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
-                    log("YAYIN HATASI: " + data.details, "#ff4444");
-                    loader.innerHTML = `YAYIN AÇILAMADI!<br><small>${data.details}</small><br><button class="btn-retry" onclick="window.open('${url}')">DIŞARIDA DENE</button>`;
+                    log("YAYIN HATASI: " + data.details, "red");
+                    loader.innerHTML = `HATA!<br><small>${data.details}</small>`;
                 }
             });
-        } else {
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = url;
-            log("Native HLS deneniyor...");
+            video.play();
+            loader.style.display = 'none';
         }
     }
-
     init();
 </script>
 </body>
