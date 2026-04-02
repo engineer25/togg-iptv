@@ -12,14 +12,14 @@
         .controls-area { padding: 15px; border-bottom: 1px solid #334155; display: flex; flex-direction: column; gap: 10px; }
         select, input { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #0f172a; color: white; font-size: 14px; outline: none; }
         .list-container { flex: 1; overflow-y: auto; padding: 10px; }
-        .channel-item { display: flex; align-items: center; padding: 10px; margin-bottom: 5px; border-radius: 8px; background: #2d3748; cursor: pointer; transition: 0.2s; font-size: 13px; border: 1px solid transparent; }
+        .channel-item { display: flex; align-items: center; padding: 10px; margin-bottom: 5px; border-radius: 8px; background: #2d3748; cursor: pointer; font-size: 13px; border: 1px solid transparent; }
         .channel-item:hover { background: #4a5568; border-color: var(--primary); }
         .active { border-left: 5px solid var(--primary); background: #1a202c !important; }
         .fav-btn { margin-left: auto; font-size: 20px; color: #666; }
         .is-fav { color: var(--fav); }
         #main { flex: 1; display: flex; flex-direction: column; background: #000; position: relative; }
         video { width: 100%; height: 100%; object-fit: contain; }
-        #debug { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.8); color: #00ff00; font-family: monospace; font-size: 11px; padding: 8px; max-height: 100px; overflow-y: auto; pointer-events: none; }
+        #debug { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.85); color: #00ff00; font-family: monospace; font-size: 11px; padding: 8px; max-height: 100px; overflow-y: auto; pointer-events: none; }
         #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; color: var(--primary); font-weight: bold; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px; text-align: center; z-index: 100; }
     </style>
 </head>
@@ -30,10 +30,7 @@
         <select id="groupSelect" onchange="updateUI()"><option value="all">Kategoriler...</option></select>
         <input type="text" id="searchInput" placeholder="Kanal ara..." onkeyup="updateUI()">
     </div>
-    <div class="list-container">
-        <div id="favList"></div>
-        <div id="channelList">Yükleniyor...</div>
-    </div>
+    <div id="channelList" class="list-container">Yükleniyor...</div>
 </div>
 
 <div id="main">
@@ -53,7 +50,7 @@
     let hls = new Hls();
 
     function log(msg, color = "#00ff00") {
-        debug.innerHTML += `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        debug.innerHTML += `<div style="color:${color}">${new Date().toLocaleTimeString()}: ${msg}</div>`;
         debug.scrollTop = debug.scrollHeight;
     }
 
@@ -62,7 +59,7 @@
             const response = await fetch(M3U_URL);
             const data = await response.text();
             parseM3U(data);
-            log("Liste başarıyla yüklendi.");
+            log("Liste yüklendi. Kanal sayısı: " + allChannels.length);
         } catch (e) {
             log("Hata: " + e.message, "red");
         }
@@ -96,29 +93,33 @@
         const cl = document.getElementById('channelList');
         cl.innerHTML = '';
         allChannels.filter(c => (g === 'all' || c.group === g) && c.title.toLowerCase().includes(q))
-            .slice(0, 250).forEach(c => {
+            .slice(0, 200).forEach(c => {
                 const div = document.createElement('div');
                 div.className = 'channel-item';
-                div.innerHTML = `<span>${c.title}</span><span class="fav-btn ${favorites.includes(c.url)?'is-fav':''}">★</span>`;
+                div.innerHTML = `<span>${c.title}</span>`;
                 div.onclick = () => play(c.url, div);
                 cl.appendChild(div);
             });
     }
 
     function play(url, el) {
-        log("Yayına bağlanılıyor: " + url);
+        // EN KRİTİK NOKTA: Yayın linkini Proxy üzerinden geçiriyoruz.
+        // Bu sayede HTTPS-HTTP uyuşmazlığını ve CORS engelini aşıyoruz.
+        const proxiedUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+        
+        log("Köprü üzerinden bağlanılıyor...");
         loader.style.display = 'block';
 
         if (Hls.isSupported()) {
             hls.destroy();
             hls = new Hls();
-            hls.loadSource(url);
+            hls.loadSource(proxiedUrl);
             hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 log("Yayın yakalandı, oynatılıyor...");
-                video.play().then(() => loader.style.display = 'none').catch(e => {
+                video.play().then(() => loader.style.display = 'none').catch(() => {
                     log("Dokunarak başlatın.", "orange");
-                    loader.innerHTML = '<button onclick="video.play(); document.getElementById(\'loader\').style.display=\'none\';" style="padding:10px; background:cyan; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">OYNAT</button>';
+                    loader.innerHTML = '<button onclick="video.play(); document.getElementById(\'loader\').style.display=\'none\';" style="padding:10px; background:cyan; border:none; border-radius:5px; font-weight:bold;">OYNAT</button>';
                 });
             });
             hls.on(Hls.Events.ERROR, (event, data) => {
@@ -127,10 +128,6 @@
                     loader.innerHTML = `HATA!<br><small>${data.details}</small>`;
                 }
             });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = url;
-            video.play();
-            loader.style.display = 'none';
         }
     }
     init();
