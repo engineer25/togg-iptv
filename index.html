@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Togg IPTV Pro - Favorites</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        :root { --primary: #00d2ff; --bg: #0f172a; --sidebar: #1e293b; --text: #f8fafc; --fav: #fbbf24; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; height: 100vh; overflow: hidden; }
+        
+        /* Yan Menü */
+        #sidebar { width: 350px; background: var(--sidebar); display: flex; flex-direction: column; border-right: 1px solid #334155; }
+        .controls-area { padding: 15px; border-bottom: 1px solid #334155; display: flex; flex-direction: column; gap: 10px; background: #111827; }
+        
+        select, input { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #0f172a; color: white; font-size: 14px; box-sizing: border-box; }
+        
+        .list-container { flex: 1; overflow-y: auto; padding: 10px; }
+        .section-title { font-size: 12px; font-weight: bold; color: var(--primary); margin: 15px 5px 5px 5px; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 5px; }
+        
+        .channel-item { display: flex; align-items: center; padding: 10px; margin-bottom: 5px; border-radius: 8px; background: #2d3748; cursor: pointer; transition: 0.2s; position: relative; }
+        .channel-item:hover { background: #4a5568; }
+        .channel-name { flex: 1; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 30px; }
+        
+        .fav-btn { font-size: 20px; color: #666; cursor: pointer; padding: 0 5px; transition: 0.2s; z-index: 10; }
+        .fav-btn.is-fav { color: var(--fav); text-shadow: 0 0 5px rgba(251, 191, 36, 0.5); }
+        
+        .active { border-left: 4px solid var(--primary); background: #1a202c !important; }
+
+        /* Video Alanı */
+        #main { flex: 1; display: flex; background: #000; position: relative; }
+        video { width: 100%; height: 100%; }
+        #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; color: var(--primary); font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <div class="controls-area">
+        <select id="groupSelect" onchange="updateUI()"></select>
+        <input type="text" id="searchInput" placeholder="Kanal ismi yazın..." onkeyup="updateUI()">
+    </div>
+    
+    <div class="list-container">
+        <div class="section-title">⭐ Favorilerim</div>
+        <div id="favList"></div>
+        
+        <div class="section-title">📺 Kanallar</div>
+        <div id="channelList">Yükleniyor...</div>
+    </div>
+</div>
+
+<div id="main">
+    <div id="loader">YÜKLENİYOR...</div>
+    <video id="video" controls autoplay playsinline></video>
+</div>
+
+<script>
+    const M3U_URL = 'http://iptv3.tjurkx.com/get.php?username=han9lvy81&password=kDvnGqzP&type=m3u_plus&output=mpegts'; 
+    
+    const video = document.getElementById('video');
+    const channelList = document.getElementById('channelList');
+    const favList = document.getElementById('favList');
+    const groupSelect = document.getElementById('groupSelect');
+    const loader = document.getElementById('loader');
+    
+    let allChannels = [];
+    let favorites = JSON.parse(localStorage.getItem('togg_favs')) || [];
+    let hls = new Hls();
+
+    async function init() {
+        try {
+            const response = await fetch(M3U_URL);
+            const data = await response.text();
+            parseM3U(data);
+        } catch (e) {
+            channelList.innerHTML = "Hata: Liste yüklenemedi.";
+        }
+    }
+
+    function parseM3U(data) {
+        const lines = data.split('\n');
+        const groups = new Set();
+        let currentChannel = null;
+
+        lines.forEach(line => {
+            line = line.trim();
+            if (line.startsWith('#EXTINF:')) {
+                const groupMatch = line.match(/group-title="([^"]+)"/);
+                const groupName = groupMatch ? groupMatch[1] : "Genel";
+                const title = line.split(',').pop();
+                currentChannel = { title, group: groupName };
+                groups.add(groupName);
+            } else if (line.startsWith('http') && currentChannel) {
+                currentChannel.url = line;
+                allChannels.push(currentChannel);
+                currentChannel = null;
+            }
+        });
+
+        // Dropdown'ı doldur
+        groupSelect.innerHTML = '<option value="all">Tüm Gruplar</option>';
+        Array.from(groups).sort().forEach(g => {
+            const opt = document.createElement('option');
+            opt.value = g; opt.innerText = g;
+            groupSelect.appendChild(opt);
+        });
+
+        updateUI();
+    }
+
+    function createItem(ch, isFavSection) {
+        const div = document.createElement('div');
+        div.className = 'channel-item';
+        
+        const isFav = favorites.includes(ch.url);
+        
+        div.innerHTML = `
+            <div class="channel-name">${ch.title}</div>
+            <div class="fav-btn ${isFav ? 'is-fav' : ''}" onclick="toggleFav(event, '${ch.url}')">★</div>
+        `;
+        
+        div.onclick = () => play(ch.url, div);
+        return div;
+    }
+
+    function updateUI() {
+        const selectedGroup = groupSelect.value;
+        const query = document.getElementById('searchInput').value.toLowerCase();
+        
+        // Favorileri Render Et
+        favList.innerHTML = '';
+        const favChannels = allChannels.filter(c => favorites.includes(c.url));
+        if (favChannels.length === 0) favList.innerHTML = '<div style="padding:10px; font-size:12px; color:#666;">Henüz favori yok.</div>';
+        favChannels.forEach(ch => favList.appendChild(createItem(ch, true)));
+
+        // Kanal Listesini Filtrele ve Render Et
+        channelList.innerHTML = '';
+        const filtered = allChannels.filter(c => 
+            (selectedGroup === 'all' || c.group === selectedGroup) && 
+            c.title.toLowerCase().includes(query)
+        );
+        filtered.forEach(ch => channelList.appendChild(createItem(ch, false)));
+    }
+
+    function toggleFav(event, url) {
+        event.stopPropagation(); // Video oynamasın, sadece favori değişsin
+        if (favorites.includes(url)) {
+            favorites = favorites.filter(f => f !== url);
+        } else {
+            favorites.push(url);
+        }
+        localStorage.setItem('togg_favs', JSON.stringify(favorites));
+        updateUI();
+    }
+
+    function play(url, el) {
+        document.querySelectorAll('.channel-item').forEach(i => i.classList.remove('active'));
+        el.classList.add('active');
+        loader.style.display = 'block';
+
+        if (Hls.isSupported()) {
+            hls.destroy();
+            hls = new Hls();
+            hls.loadSource(url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play();
+                loader.style.display = 'none';
+            });
+        } else {
+            video.src = url;
+            video.play();
+            loader.style.display = 'none';
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>
